@@ -1,10 +1,14 @@
 import { model, Schema } from "mongoose";
 
+export type UserRole = "user" | "admin";
+
 export interface User {
   name: string;
   email: string;
   password: string;
-  role: "user" | "admin";
+  role: UserRole;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 const userSchema = new Schema(

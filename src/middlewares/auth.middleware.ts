@@ -21,31 +21,48 @@ export const validateBody = (schema: z.ZodType) => {
   };
 };
 
+// Access token verification
 export const authenticate = (
   req: Request,
   res: Response,
   next: NextFunction
 ) => {
   try {
+    // 1. Getting the Access token
     const authHeader = req.headers.authorization;
 
+    // 2. Checking if the user has access token or 
+    // the token is invalid
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      res.status(401).json({
+      return res.status(401).json({
         message: "Access token required"
       });
     }
 
-    const token = authHeader?.split(" ")[2];
+    // 3. Splitting the access token from "Bearer " 
+    const token = authHeader.split(" ")[1];
+    if (!token) {
+      return res.status(401).json({
+        message: "Invalid authorization header",
+      });
+    }
 
+    // 4. Decoding the access token
     const decoded = verifyAccessToken(token);
 
-    req.user = decoded;
+    // 5. Passing the payload to the controllers
+    req.user = {
+      userId: decoded.userId,
+      role: decoded.role
+    };
 
     next();
 
   } catch (error) {
-    res.status(401).json({
-      message: error.message
+    console.error(error);
+
+    return res.status(500).json({
+      message: "Server error!"
     })
   }
 }

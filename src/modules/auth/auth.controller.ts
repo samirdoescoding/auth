@@ -1,68 +1,83 @@
-import type { Request, Response } from "express";
-import { refreshTokenCookieOptions } from "../../utils/cookies.js";
+import type { Request, RequestHandler, Response } from "express";
+import userModel from "../users/user.model.js";
+import sessionModel from "../session/session.model.js";
 import {
+  generatePasswordHash,
+  verifyPassword,
   generateAccessToken,
   generateRefreshToken,
-  hashRefreshToken,
+  generateRefreshTokenHash,
   verifyRefreshToken,
 } from "./auth.service.js";
-import userModel from "../users/user.model.js";
-import { checkPassword, generatePasswordHash } from "./auth.service.js";
-import sessionModel, { Session } from "../session/session.model.js";
+import { refreshTokenCookieOptions } from "../../utils/cookies.js";
 import { sevenDays } from "../../const/token-const.js";
 
 export const register = async (req: Request, res: Response) => {
-  // deconstructing name, email and password
-  const { name, email, password } = req.body;
-
   try {
-    // checking if user already exists
+    // 1. Reading the name, email and password from body
+    const { name, email, password } = req.body;
+
+    // 2. Checking if the user already exists,
+    // if exists show that user already exists
     const user = await userModel.findOne({ email });
     if (user) {
-      throw new Error("User already exists");
+      return res.status(400).json({
+        message: "User already exists!",
+      });
     }
 
-    // saving the user in database
+    // 3. Hash the password and save user in database
     const hashPassword = await generatePasswordHash(password);
-    const newUser = await userModel.create({
+    await userModel.create({
       name: name,
       email,
       password: hashPassword,
     });
 
-    res.status(201).json({
+    // 4. Send success message
+    return res.status(201).json({
       message: "User was successfully registered",
     });
   } catch (error: any) {
     console.error(error);
-    res.status(500).json({
-      message: error.message,
+
+    return res.status(500).json({
+      message: "Server error!",
     });
   }
 };
 
 export const login = async (req: Request, res: Response) => {
   try {
-    // deconstruct email and password
+    // 1. Reading email and password
     const { email, password } = req.body;
 
-    // finding user
+    // 2. Finding user
+    // if user does not exists tell the user
+    // do not let the user know which one is wrong email or password
     const user = await userModel.findOne({ email });
     if (!user) {
-      throw new Error("Invalid email or password");
+      return res.status(400).json({
+        message: "Invalid email or password",
+      });
     }
-    // checking password
-    const isPasswordCorrect = checkPassword(password, user.password);
+
+    // 3. Checking password
+    const isPasswordCorrect = verifyPassword(password, user.password);
     if (!isPasswordCorrect) {
-      throw new Error("Invalid email or password");
+      return res.status(400).json({
+        message: "Invalid email or password",
+      });
     }
-    // generating access token and refresh token
+
+    // 4. Generating access token and refresh token
     const accessToken = generateAccessToken(user);
     const refreshToken = generateRefreshToken(user);
 
-    // refresh token is hashed and stored in session
-    const refreshTokenHash = hashRefreshToken(refreshToken);
-    // creating a new user session
+    // 5. Refresh token is hashed and stored in session
+    const refreshTokenHash = generateRefreshTokenHash(refreshToken);
+
+    // 6. Creating a new user session
     await sessionModel.create({
       user: user._id,
       refreshTokenHash,
@@ -70,48 +85,67 @@ export const login = async (req: Request, res: Response) => {
       userAgent: req.get("user-agent") ?? null,
       ip: req.ip ?? null,
     });
-    // refresh token is stored in client's httpOnly cookie
+
+    // 7. Refresh token is stored in client's httpOnly cookie
     res.cookie("refreshToken", refreshToken, refreshTokenCookieOptions);
 
-    // access token goes to the client as a response
+    // 8. access token goes to the client as a response
     // and stored in memory
-    res.status(201).json({ accessToken });
+    return res.status(201).json({
+      accessToken,
+    });
   } catch (error: any) {
     console.error(error);
-    res.status(500).json({
-      message: error.message,
+
+    return res.status(500).json({
+      message: "Server error!",
     });
   }
 };
 
 export const meController = async (req: Request, res: Response) => {
-  const user = req.user;
+  try {
+    // 1. Reading authenticated user
+    const authenticatedUser = req.user;
+    if (!authenticatedUser) {
+      return res.status(401).json({
+        message: "Authentication required!",
+      });
+    }
 
-  if (!user) {
-    res.status(401).json({
-      message: "Authentication required",
+    // 2. Finding user info by user id
+    const id = authenticatedUser.userId;
+
+    const user = await userModel.findById(id);
+    if (!user) {
+      return res.status(401).json({
+        message: "User not found!",
+      });
+    }
+
+    // 3. Sending user's info to the user
+    return res.status(201).json({
+      success: true,
+      user: {
+        name: user.name,
+        email: user.email,
+      },
+    });
+  } catch (error) {
+    console.error(error);
+
+    return res.status(500).json({
+      message: "Server error!",
     });
   }
-
-  const id = user._id;
-  const { name, email, role } = await userModel.findOne({ id });
-
-  res.status(201).json({
-    success: true,
-    user: {
-      name,
-      email,
-      role,
-    },
-  });
 };
 
 export const refreshTokenController = async (req: Request, res: Response) => {
   try {
     // 1. get refresh token from cookie
-    const oldRefreshToken = req.cookies.refreshToken;
+    const oldRefreshToken = req.cookies?.refreshToken;
     if (!oldRefreshToken) {
-      res.status(401).json({
+      return res.status(401).json({
         message: "Refresh token required",
       });
     }
@@ -120,30 +154,30 @@ export const refreshTokenController = async (req: Request, res: Response) => {
     const { userId } = verifyRefreshToken(oldRefreshToken);
 
     // 3. hash it
-    const oldHashedRefreshToken = hashRefreshToken(oldRefreshToken);
+    const oldHashedRefreshToken = generateRefreshTokenHash(oldRefreshToken);
 
     // 4. find the matching session
     // and making sure that the session is not revoked
     // and not expired
-    const session: Session = await sessionModel.findOne({
+    const session = await sessionModel.findOne({
       user: userId,
       refreshTokenHash: oldHashedRefreshToken,
     });
 
     if (!session) {
-      res.status(401).json({
+      return res.status(401).json({
         message: "Invalid refresh token",
       });
     }
 
     if (session.revokedAt) {
-      res.status(401).json({
+      return res.status(401).json({
         message: "Refresh token has been revoked",
       });
     }
 
     if (session.expiresAt < new Date()) {
-      res.status(401).json({
+      return res.status(401).json({
         message: "Expired refresh token",
       });
     }
@@ -165,7 +199,7 @@ export const refreshTokenController = async (req: Request, res: Response) => {
     const newRefreshToken = generateRefreshToken(user);
 
     // 8. hashing the new refresh token
-    const newHashedRefreshToken = hashRefreshToken(newRefreshToken);
+    const newHashedRefreshToken = generateRefreshTokenHash(newRefreshToken);
 
     // 9. creating a new session
     await sessionModel.create({
@@ -178,12 +212,14 @@ export const refreshTokenController = async (req: Request, res: Response) => {
     res.cookie("refreshToken", newRefreshToken, refreshTokenCookieOptions);
 
     // 11. sending the access token as response
-    res.status(201).json({
+    return res.status(201).json({
       accessToken,
     });
   } catch (error) {
-    res.status(401).json({
-      message: "Invalid or Expired Refresh Token",
+    console.error(error);
+
+    return res.status(500).json({
+      message: "Server error!",
     });
   }
 };
@@ -195,7 +231,7 @@ export const logout = async (req: Request, res: Response) => {
 
     // 2. find the session and revoke
     if (refreshToken) {
-      const hashedRefreshedToken = hashRefreshToken(refreshToken);
+      const hashedRefreshedToken = generateRefreshTokenHash(refreshToken);
       await sessionModel.findOneAndUpdate(
         {
           refreshTokenHash: hashedRefreshedToken,
@@ -206,37 +242,49 @@ export const logout = async (req: Request, res: Response) => {
 
       res.clearCookie("refreshToken");
 
-      res.json({
+      return res.json({
         message: "Logout was successful",
       });
     } else {
-      res.status(401).json({
+      return res.status(401).json({
         message: "Invalid refresh token",
       });
     }
-  } catch (error) {
-    res.status(401).json({
-      message: error.message,
+  } catch (error: any) {
+    console.error(error);
+
+    return res.status(500).json({
+      message: "Server error!",
     });
   }
 };
 
 export const logoutAll = async (req: Request, res: Response) => {
   try {
-    // 1. Revoke all sessions
+    // If no access token, fail the request
+    if (!req.user) {
+      return res.status(403).json({
+        message: "Unauthorized!",
+      });
+    }
+
+    const userId = req.user.userId;
+
+    // Revoke all sessions
     await sessionModel.updateMany(
-      { user: req.user.userId, revokedAt: null },
-      { revokedAt: new Date() }
+      { user: userId, revokedAt: null },
+      { revokedAt: new Date() },
     );
 
     res.clearCookie("refreshToken");
 
-    res.status(201).json({
-      message: "Logged out from all devices"
+    return res.status(201).json({
+      message: "Logged out from all devices",
     });
-
   } catch (error) {
-    res.status(500).json({
+    console.error(error);
+
+    return res.status(500).json({
       message: "Server error!",
     });
   }
