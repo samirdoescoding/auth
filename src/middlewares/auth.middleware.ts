@@ -1,7 +1,9 @@
 import z from "zod";
 import type { Request, Response, NextFunction } from "express";
-import { verifyAccessToken } from "../modules/auth/auth.service.js";
+import { verifyAccessToken } from "../modules/auth/auth.services.js";
+import { UserRole } from "../modules/users/user.model.js";
 
+// Verifying the Body
 export const validateBody = (schema: z.ZodType) => {
   return (
     req: Request, 
@@ -21,7 +23,7 @@ export const validateBody = (schema: z.ZodType) => {
   };
 };
 
-// Access token verification
+// Verifying Access Token
 export const authenticate = (
   req: Request,
   res: Response,
@@ -64,5 +66,30 @@ export const authenticate = (
     return res.status(500).json({
       message: "Server error!"
     })
+  }
+}
+
+// Verifying Role
+export const authorize = (...allowedRoles: UserRole[]) => {
+  return (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ) => {
+    const user = req.user;
+    if (!user) {
+      return res.status(403).json({
+        message: "Unauthorized!"
+      });
+    }
+
+    const role = user.role;
+    if (!allowedRoles.includes(role)) {
+      return res.status(403).json({
+        message: "Forbidden!"
+      })
+    }
+
+    return next();
   }
 }

@@ -8,7 +8,7 @@ import {
   generateRefreshToken,
   generateRefreshTokenHash,
   verifyRefreshToken,
-} from "./auth.service.js";
+} from "./auth.services.js";
 import { refreshTokenCookieOptions } from "../../utils/cookies.js";
 import { sevenDays } from "../../const/token-const.js";
 

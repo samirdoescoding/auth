@@ -1,15 +1,14 @@
 import { Schema, model } from "mongoose";
 
-export interface Task {
+export interface Post {
   title: string;
-  description: string;
-  completed: boolean;
-  owner: string;
+  content: string;
+  author: string;
   createdAt: Date;
   updatedAt: Date;
 }
 
-const taskSchema = new Schema(
+const postSchema = new Schema(
   {
     title: {
       type: String,
@@ -17,17 +16,12 @@ const taskSchema = new Schema(
       trim: true,
     },
 
-    description: {
+    content: {
       type: String,
       trim: true,
     },
 
-    completed: {
-      type: Boolean,
-      default: false,
-    },
-
-    owner: {
+    author: {
       type: Schema.Types.ObjectId,
       ref: "User",
       required: true,
@@ -36,6 +30,6 @@ const taskSchema = new Schema(
   { timestamps: true }
 );
 
-const taskModel = model("Task", taskSchema);
+const postModel = model("Post", postSchema);
 
-export default taskModel;
+export default postModel;
